@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum EmpresaStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum Plano {
+  FREE
+  SECUNDARIO
+  PRO
+  FULL
+}
+
+enum Role {
+  ADMIN
+  GERENTE
+  FINANCEIRO
+  SECRETARIA
+  PROFISSIONAL
+  VISUALIZADOR
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ConviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
+enum ClienteStatus {
+  ATIVO
+  INATIVO
+  PENDENTE
+}
+
+enum AgendamentoStatus {
+  AGENDADO
+  CONFIRMADO
+  CANCELADO
+  CONCLUIDO
+}
+
+enum CobrancaStatus {
+  PENDENTE
+  PAGA
+  VENCIDA
+  PARCIAL
+  CANCELADA
+}
+
+enum FuncionarioStatus {
+  ATIVO
+  INATIVO
+  FERIAS
+  DESLIGADO
+}
+
+// ============================================
+// CORE MODELS
+// ============================================
+
+model Usuario {
+  id        String   @id @default(uuid())
+  nome      String
+  email     String   @unique
+  login     String?  @unique
+  senhaHash String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  empresas EmpresaUsuario[]
+  accounts Account[]
+  sessions Session[]
+}
+
+model Empresa {
+  id           String        @id @default(uuid())
+  nome         String
+  nomeFantasia String?
+  cnpj         String?       @unique
+  email        String?
+  telefone     String?
+  logoUrl      String?
+  corPrimaria  String?       @default("#0284c7")
+  corSecundaria String?      @default("#0ea5e9")
+  tema         String        @default("light")
+
+  status         EmpresaStatus @default(ACTIVE)
+  trialExpiresAt DateTime?
+  maxUsers       Int           @default(2)
+  timezone       String        @default("America/Sao_Paulo")
+
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+
+  plano       Plano @default(FREE)
+  valorMensal Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  membros       EmpresaUsuario[]
+  convites      Convite[]
+  clientes      Cliente[]
+  agendamentos  Agendamento[]
+  servicos      ServicoCatalogo[]
+  atendimentos  Atendimento[]
+  cobrancas     Cobranca[]
+  documentos    DocumentoModelo[]
+  funcionarios  Funcionario[]
+
+  @@index([status])
+  @@index([stripeCustomerId])
+}
+
+model EmpresaUsuario {
+  id           String       @id @default(uuid())
+  usuarioId    String
+  empresaId    String
+  role         Role         @default(PROFISSIONAL)
+  status       MemberStatus @default(ACTIVE)
+  isOwner      Boolean      @default(false)
+  permissoes   Json?
+  joinedAt     DateTime     @default(now())
+  lastAccessAt DateTime     @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, empresaId])
+  @@index([empresaId])
+  @@index([usuarioId])
+}
+
+model Convite {
+  id        String        @id @default(uuid())
+  empresaId String
+  email     String
+  role      Role          @default(PROFISSIONAL)
+  token     String        @unique @default(uuid())
+  status    ConviteStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime      @default(now())
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([empresaId])
+  @@index([email])
+}
+
+// ============================================
+// BUSINESS MODELS
+// ============================================
+
+model Cliente {
+  id         String        @id @default(uuid())
+  empresaId  String
+  nome       String
+  cpf        String?
+  telefone   String?
+  email      String?
+  categoria  String?
+  status     ClienteStatus @default(ATIVO)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  empresa       Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agendamentos  Agendamento[]
+  atendimentos  Atendimento[]
+  cobrancas     Cobranca[]
+
+  @@index([empresaId])
+  @@index([empresaId, status])
+  @@index([empresaId, nome])
+}
+
+model ServicoCatalogo {
+  id             String   @id @default(uuid())
+  empresaId      String
+  nome           String
+  descricao      String?
+  preco          Float    @default(0)
+  duracaoMinutos Int      @default(60)
+  status         String   @default("ATIVO")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  empresa       Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  agendamentos  Agendamento[]
+  atendimentos  Atendimento[]
+
+  @@index([empresaId])
+}
+
+model Agendamento {
+  id             String            @id @default(uuid())
+  empresaId      String
+  titulo         String
+  descricao      String?
+  dataHoraInicio DateTime
+  dataHoraFim    DateTime
+  clienteId      String?
+  servicoId      String?
+  status         AgendamentoStatus @default(AGENDADO)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  empresa  Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente  Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  servico  ServicoCatalogo? @relation(fields: [servicoId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId])
+  @@index([empresaId, dataHoraInicio])
+}
+
+model Atendimento {
+  id                 String   @id @default(uuid())
+  empresaId          String
+  clienteId          String?
+  servicoId          String?
+  dataAtendimento    DateTime @default(now())
+  valor              Float    @default(0)
+  observacoes        String?
+  clienteConfirmado  Boolean  @default(false)
+  servicoRealizado   Boolean  @default(false)
+  cobrancaGerada     Boolean  @default(false)
+  pagamentoRecebido  Boolean  @default(false)
+  lembrarNaAgenda    Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  empresa   Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente   Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  servico   ServicoCatalogo? @relation(fields: [servicoId], references: [id], onDelete: SetNull)
+  cobrancas Cobranca[]
+
+  @@index([empresaId])
+  @@index([empresaId, dataAtendimento])
+}
+
+model Cobranca {
+  id              String         @id @default(uuid())
+  empresaId       String
+  clienteId       String?
+  atendimentoId   String?
+  descricao       String
+  valor           Float
+  dataVencimento  DateTime
+  dataPagamento   DateTime?
+  valorPago       Float?
+  status          CobrancaStatus @default(PENDENTE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  empresa     Empresa      @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente     Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId])
+  @@index([empresaId, status])
+  @@index([empresaId, dataVencimento])
+}
+
+model DocumentoModelo {
+  id              String   @id @default(uuid())
+  empresaId       String
+  titulo          String
+  conteudo        String   @db.Text
+  camposDinamicos Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId])
+}
+
+model Funcionario {
+  id             String             @id @default(uuid())
+  empresaId      String
+  nome           String
+  cpf            String?
+  email          String?
+  telefone       String?
+  cargo          String?
+  dataAdmissao   DateTime?
+  salario        Float?
+  dadosBancarios Json?
+  status         FuncionarioStatus  @default(ATIVO)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId])
+  @@index([empresaId, status])
+}
+
+// ============================================
+// NEXT AUTH MODELS
+// ============================================
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
